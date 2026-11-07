@@ -1,0 +1,9 @@
+{
+    "name": "@filzmann/shared-browser",
+    "version": "0.1.0",
+    "description": "Isolatable browser primitives shared by Filzmann Nextcloud apps.",
+    "license": "AGPL-3.0-or-later",
+    "files": [
+        "src"
+    ]
+}
