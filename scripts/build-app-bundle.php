@@ -9,6 +9,7 @@ $appNamespace = $options['app-namespace'] ?? '';
 $target = $options['target'] ?? '';
 $explicitBrowserTarget = $options['browser-target'] ?? '';
 $composerBinary = $options['composer-bin'] ?? 'composer';
+$component = $options['component'] ?? 'all';
 
 if (!preg_match('/^[a-z][a-z0-9_]{1,63}$/', $appId)) {
     fail('Ungültige App-ID.');
@@ -31,13 +32,44 @@ if ($explicitBrowserTarget !== '' && file_exists($explicitBrowserTarget)) {
 if ($composerBinary === '' || str_contains($composerBinary, "\0")) {
     fail('Das Composer-Binary ist ungültig.');
 }
+if (!in_array($component, ['all', 'browser'], true)) {
+    fail('Die Bundle-Komponente muss all oder browser sein.');
+}
+if ($component === 'browser' && $explicitBrowserTarget !== '') {
+    fail('Der reine Browser-Build verwendet target direkt und akzeptiert kein separates Browser-Ziel.');
+}
+
+$browserPackage = $root . '/packages/browser';
+$browserManifest = readJson($browserPackage . '/package.json');
+
+if ($component === 'browser') {
+    if (!mkdir($target, 0775, true) && !is_dir($target)) {
+        fail('Browser-Bundle-Verzeichnis konnte nicht angelegt werden: ' . $target);
+    }
+    writeBrowserBundle($browserPackage, $target, $appNamespace);
+    writeFile($target . '/LICENSE', readRequired($root . '/LICENSE'));
+    $lock = [
+        'schema' => 1,
+        'component' => 'browser',
+        'app_id' => $appId,
+        'app_namespace' => $appNamespace,
+        'browser_global' => 'window.OCA.' . $appNamespace . '.Shared',
+        'packages' => [
+            'browser' => [
+                'name' => $browserManifest['name'] ?? null,
+                'version' => $browserManifest['version'] ?? null,
+                'sha256' => directoryDigest($browserPackage),
+            ],
+        ],
+    ];
+    writeFile($target . '/flz-shared.lock.json', json_encode($lock, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+    echo 'Built isolated browser bundle for ' . $appId . "\n";
+    exit(0);
+}
 
 $phpPackage = $root . '/packages/php-runtime';
-$browserPackage = $root . '/packages/browser';
 $phpManifest = readJson($phpPackage . '/composer.json');
-$browserManifest = readJson($browserPackage . '/package.json');
 $phpVersion = trim(readRequired($phpPackage . '/VERSION'));
-
 $phpTarget = $target . '/php/src';
 $browserTarget = $explicitBrowserTarget !== '' ? $explicitBrowserTarget : $target . '/browser';
 foreach ([$phpTarget . '/Controller', $phpTarget . '/Model', $phpTarget . '/Service', $browserTarget] as $directory) {
@@ -80,10 +112,7 @@ writeFile(
 );
 runComposer($composerBinary, $target . '/php');
 
-foreach (['api-client.js', 'model.js', 'repository.js', 'ui.js'] as $file) {
-    $source = readRequired($browserPackage . '/src/' . $file);
-    writeFile($browserTarget . '/' . $file, str_replace('__APP_NAMESPACE__', $appNamespace, $source));
-}
+writeBrowserBundle($browserPackage, $browserTarget, $appNamespace);
 
 writeFile($target . '/LICENSE', readRequired($root . '/LICENSE'));
 $lock = [
@@ -142,6 +171,14 @@ function readRequired(string $path): string {
 function writeFile(string $path, string $content): void {
     if (@file_put_contents($path, $content) === false) {
         fail('Bundle-Datei konnte nicht geschrieben werden: ' . $path);
+    }
+}
+
+function writeBrowserBundle(string $browserPackage, string $browserTarget, string $appNamespace): void
+{
+    foreach (['api-client.js', 'model.js', 'repository.js', 'ui.js'] as $file) {
+        $source = readRequired($browserPackage . '/src/' . $file);
+        writeFile($browserTarget . '/' . $file, str_replace('__APP_NAMESPACE__', $appNamespace, $source));
     }
 }
 

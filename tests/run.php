@@ -14,6 +14,9 @@ $first = $temporaryRoot . '/first';
 $second = $temporaryRoot . '/second';
 $separate = $temporaryRoot . '/separate';
 $separateBrowser = $temporaryRoot . '/separate-browser';
+$browserOnlySource = $temporaryRoot . '/browser-only-source';
+$browserOnlyFirst = $temporaryRoot . '/calendar-browser-first';
+$browserOnlySecond = $temporaryRoot . '/calendar-browser-second';
 
 try {
     foreach ([$first, $second] as $target) {
@@ -124,6 +127,76 @@ try {
         throw new RuntimeException('Ein explizites Browser-Ziel wird nicht getrennt erzeugt.');
     }
 
+    mkdir($browserOnlySource . '/scripts', 0775, true);
+    copy($buildScript, $browserOnlySource . '/scripts/build-app-bundle.php');
+    copy($root . '/LICENSE', $browserOnlySource . '/LICENSE');
+    copyTree($root . '/packages/browser', $browserOnlySource . '/packages/browser');
+
+    foreach ([$browserOnlyFirst, $browserOnlySecond] as $browserOnlyTarget) {
+        $browserOnlyCommand = [
+            PHP_BINARY,
+            $browserOnlySource . '/scripts/build-app-bundle.php',
+            '--component=browser',
+            '--app-id=flzcalendar',
+            '--app-namespace=FlzCalendar',
+            '--target=' . $browserOnlyTarget,
+        ];
+        $process = proc_open($browserOnlyCommand, [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']], $pipes, $browserOnlySource);
+        if (!is_resource($process)) {
+            throw new RuntimeException('Der reine Browser-Build konnte nicht gestartet werden.');
+        }
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);
+        $status = proc_close($process);
+        if ($status !== 0) {
+            throw new RuntimeException("Der reine Browser-Build ist fehlgeschlagen: {$stdout}{$stderr}");
+        }
+    }
+    $browserOnlyFiles = bundleFiles($browserOnlyFirst);
+    if ($browserOnlyFiles !== bundleFiles($browserOnlySecond)) {
+        throw new RuntimeException('Zwei reine Browser-Builds derselben Eingabe sind nicht bytegleich.');
+    }
+    foreach (['api-client.js', 'model.js', 'repository.js', 'ui.js', 'LICENSE', 'flz-shared.lock.json'] as $required) {
+        if (!array_key_exists($required, $browserOnlyFiles)) {
+            throw new RuntimeException('Datei im reinen Browser-Build fehlt: ' . $required);
+        }
+    }
+    foreach ($browserOnlyFiles as $path => $content) {
+        if (str_starts_with($path, 'php/')) {
+            throw new RuntimeException('Der reine Browser-Build enthält unerwartet PHP: ' . $path);
+        }
+    }
+    $browserOnlyLock = json_decode($browserOnlyFiles['flz-shared.lock.json'], true, flags: JSON_THROW_ON_ERROR);
+    if (($browserOnlyLock['component'] ?? null) !== 'browser'
+        || ($browserOnlyLock['app_id'] ?? null) !== 'flzcalendar'
+        || ($browserOnlyLock['browser_global'] ?? null) !== 'window.OCA.FlzCalendar.Shared'
+        || array_keys($browserOnlyLock['packages'] ?? []) !== ['browser']) {
+        throw new RuntimeException('Der reine Browser-Lock beschreibt Ziel und Paket nicht eindeutig.');
+    }
+    $browserOnlyRuntimeCommand = [
+        'node',
+        $root . '/tests/browser-runtime.mjs',
+        $browserOnlyFirst,
+        'FlzCalendar',
+        'flzcalendar',
+    ];
+    $process = proc_open($browserOnlyRuntimeCommand, [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']], $pipes, $root);
+    if (!is_resource($process)) {
+        throw new RuntimeException('Der reine Browser-Laufzeitvertrag konnte nicht gestartet werden.');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[2]);
+    $status = proc_close($process);
+    if ($status !== 0) {
+        throw new RuntimeException("Der reine Browser-Laufzeitvertrag ist fehlgeschlagen: {$stdout}{$stderr}");
+    }
+
     if (array_key_exists('php/autoload.php', $firstFiles)) {
         throw new RuntimeException('Ein paralleler handgeschriebener PHP-Autoloader ist unzulässig.');
     }
@@ -137,6 +210,8 @@ try {
         'node',
         $root . '/tests/browser-runtime.mjs',
         $first . '/browser',
+        'FlzUrlaub',
+        'flzurlaub',
     ];
     $process = proc_open($browserCommand, [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']], $pipes, $root);
     if (!is_resource($process)) {
@@ -176,6 +251,31 @@ function bundleFiles(string $root): array {
     ksort($files);
 
     return $files;
+}
+
+function copyTree(string $source, string $target): void
+{
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $item) {
+        $relative = substr($item->getPathname(), strlen($source) + 1);
+        $destination = $target . '/' . $relative;
+        if ($item->isDir()) {
+            if (!mkdir($destination, 0775, true) && !is_dir($destination)) {
+                throw new RuntimeException('Temporäres Quellverzeichnis konnte nicht kopiert werden: ' . $destination);
+            }
+            continue;
+        }
+        $parent = dirname($destination);
+        if (!is_dir($parent) && !mkdir($parent, 0775, true) && !is_dir($parent)) {
+            throw new RuntimeException('Temporäres Zielverzeichnis konnte nicht angelegt werden: ' . $parent);
+        }
+        if (!copy($item->getPathname(), $destination)) {
+            throw new RuntimeException('Temporäre Quelldatei konnte nicht kopiert werden: ' . $relative);
+        }
+    }
 }
 
 function removeTree(string $path): void {

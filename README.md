@@ -33,6 +33,19 @@ schreibt einen stabilen Lock mit Paketname, Version, Quell-Digest und
 Zielnamespace. Consumer-Repositories übernehmen nur diese gebaute,
 versionierte Produktionsabhängigkeit und halten ihren Lock mit dem Release.
 
+Ein reiner Browser-Consumer erzeugt sein app-lokales, vollständig
+lieferfähiges Artefakt einschließlich Lock und Lizenz ohne ungenutzte
+PHP-Laufzeitdateien. Dieser Build benötigt weder das PHP-Quellpaket noch
+Composer:
+
+```bash
+php scripts/build-app-bundle.php \
+  --component=browser \
+  --app-id=flzcalendar \
+  --app-namespace=FlzCalendar \
+  --target=/absoluter/pfad/zur/app/js/shared
+```
+
 ## Prüfung
 
 ```bash
@@ -48,3 +61,14 @@ Der fokussierte Test beweist deterministische Ausgabe, isolierte PHP- und
 Browser-Namen, Paketdigests, Lizenzmetadaten und die Auflösung durch genau
 einen app-lokalen Autoloader. Er beweist keine Nextcloud-DI- oder
 Installationsmatrix; diese bleibt Aufgabe jedes Consumers.
+
+Der reine Browser-Build wurde zusätzlich nachträglich gegen den vorherigen
+Builder aus Commit `1d27fed` geprüft: Der aktuelle Verhaltenstest scheitert
+dort beim Zugriff auf das bewusst fehlende PHP-Quellpaket; mit dem aktuellen
+Builder besteht er. Diese reproduzierte Regression belegt die behobene
+Abhängigkeit, rekonstruiert aber keinen ursprünglichen zeitlichen
+Red–Green-Ablauf. Dessen fehlender historischer Nachweis bleibt ausdrücklich
+eine begründete Abweichung bei der Übernahme des bestehenden Arbeitsstands.
+
+`LICENSE` enthält die vollständigen AGPL-3-Bedingungen und die Attribution;
+der Build übernimmt diese Datei unverändert in jedes Consumer-Bundle.

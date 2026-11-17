@@ -3,8 +3,13 @@ import { resolve } from 'node:path';
 import vm from 'node:vm';
 
 const browserRoot = process.argv[2];
+const appNamespace = process.argv[3];
+const appId = process.argv[4];
 if (!browserRoot) {
     throw new Error('Das Browser-Bundle-Verzeichnis fehlt.');
+}
+if (!appNamespace || !appId) {
+    throw new Error('Zielnamespace und App-ID des Browser-Bundles fehlen.');
 }
 
 const requests = [];
@@ -42,7 +47,7 @@ for (const file of ['api-client.js', 'model.js', 'repository.js', 'ui.js']) {
     vm.runInContext(source, context, { filename: file });
 }
 
-const shared = window.OCA?.FlzUrlaub?.Shared;
+const shared = window.OCA?.[appNamespace]?.Shared;
 if (!shared?.api?.ApiClient || !shared?.models?.Model || !shared?.repositories?.Repository || !shared?.ui?.Notice) {
     throw new Error('Das isolierte Browser-Bundle stellt nicht alle Kategorie-A-Primitives bereit.');
 }
@@ -50,12 +55,12 @@ if ('LocalBase' in window) {
     throw new Error('Das Browser-Bundle erzeugt weiterhin ein window.LocalBase-Global.');
 }
 
-const client = new shared.api.ApiClient({ appId: 'flzurlaub' });
+const client = new shared.api.ApiClient({ appId });
 const response = await client.request('/api/ping', { method: 'POST', body: '{}' });
 if (response.ok !== true || requests.length !== 1) {
     throw new Error('Der gebündelte ApiClient erhält keine erfolgreiche Antwort.');
 }
-if (requests[0].url !== '/index.php/apps/flzurlaub/api/ping'
+if (requests[0].url !== `/index.php/apps/${appId}/api/ping`
     || requests[0].options.headers.requesttoken !== 'synthetic-token') {
     throw new Error('Der gebündelte ApiClient bewahrt URL- und CSRF-Vertrag nicht.');
 }
